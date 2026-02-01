@@ -1,0 +1,94 @@
+---
+title: "Homework 1"
+output: html_document
+---
+
+## Introduction
+
+Name: Vivi Lazo
+Program: Data Analytics MS
+Year: 1st
+
+During my time as a Computer Science undergrad, I worked (and still currently work) as a researcher at UCF IST's Mixed Emerging Technology Integration Lab (METIL) where I integrated AI in two projects and data analysis techniques in a separate project. My undergraduate senior design project also involved AI, more specifically developing a pipeline for Code Repair vulnerability. My experiences with these projects has given me a strong background in various LLM and data-related Python libraries as well as the R programming language.
+
+My expectations for being in the MSDA program is developing an understanding of data analysis robust enough to be able to excel in any analyst role for a company. My familiarity with Data mining is very limited; though I understand a lot of topics conceptually but have not had an opportunity to explore the depths of topics.
+
+Teammates: Sahil Bhikha, David Almeida, Christopher Ellis
+
+<br>
+
+## Questions
+
+1. Flexible vs Inflexible statistical learning method
+
+(a) A flexible method would be more effective in the case of a large sample size. This is because there are more samples which would mean less chance of overfitting the model.
+
+(b) An inflexible method would be more effective in the case of a small sample size and large number of predictors. Using an inflexible method such as linear regression minimizes the chances of overfitting because it is easier to fit a rigid model around a small amount of data points as opposed to a large amount.
+
+(c) A flexible method is better when the relationship between the predictors and response is non-linear. This non-linearity implies the data could be too complex for an inflexible method such as regression.
+
+(d) An inflexible method is better when variance in error terms is high. A flexible method would be more susceptible to fitting to the noise that causes the high variance in the error terms while an inflexible method would be rigid.
+
+<br>
+3. Bias-Variance tradeoff
+![](bias-variance.png)
+
+
+Irreducible error is the minimum possible error that does not fluctuate as it is noise in the data that exists at any flexibility. The training error starts high then decreases as flexibility increases because the model adheres to training data while training takes place. Testing error starts high, dips to an inflection point, then increases because as a model gets increasingly flexible it attempts to fit around the test data after being trained and achieves the best possible performance before overfitting too much on the data. Squared bias causes error starts high then decreases because an inflexible model would be less capable at capturing underlying patterns than a more flexible model. Variance causes error that would increase as flexibility increases because the the more flexible the model gets the more it tries to fit the data, resulting in overfitting (and high error).
+
+<br>
+
+5. What are the advantages and disadvantages of a very flexible (versus
+a less flexible) approach for regression or classification? Under what circumstances might a more flexible approach be preferred to a less
+flexible approach? When might a less flexible approach be preferred?
+
+
+
+<br>
+7. The table below provides a training data set containing six observations, three predictors, and one qualitative response variable.
+Obs. X1 X2 X3 Y
+1 030 Red
+2 200 Red
+3 013 Red
+4 012 Green
+5 −101 Green
+6 111 Red
+Suppose we wish to use this data set to make a prediction for Y when
+X1 = X2 = X3 = 0 using K-nearest neighbors.
+(a) Compute the Euclidean distance between each observation and
+the test point, X1 = X2 = X3 = 0.
+(b) What is our prediction with K = 1? Why?
+(c) What is our prediction with K = 3? Why?
+(d) If the Bayes decision boundary in this problem is highly nonlinear, then would we expect the best value for K to be large or
+small? Why?
+
+<br>
+
+10. This exercise involves the Boston housing data set.
+(a) To begin, load in the Boston data set. The Boston data set is
+part of the ISLR2 library.
+> library(ISLR2)
+Now the data set is contained in the object Boston.
+> Boston
+Read about the data set:
+> ?Boston
+How many rows are in this data set? How many columns? What
+do the rows and columns represent?
+(b) Make some pairwise scatterplots of the predictors (columns) in
+this data set. Describe your findings.
+(c) Are any of the predictors associated with per capita crime rate?
+If so, explain the relationship.
+(d) Do any of the census tracts of Boston appear to have particularly
+high crime rates? Tax rates? Pupil-teacher ratios? Comment on
+the range of each predictor.
+(e) How many of the census tracts in this data set bound the Charles
+river?
+(f) What is the median pupil-teacher ratio among the towns in this
+data set?
+(g) Which census tract of Boston has lowest median value of owneroccupied homes? What are the values of the other predictors
+for that census tract, and how do those values compare to the
+overall ranges for those predictors? Comment on your findings.
+(h) In this data set, how many of the census tracts average more than
+seven rooms per dwelling? More than eight rooms per dwelling?
+Comment on the census tracts that average more than eight
+rooms per dwelling
