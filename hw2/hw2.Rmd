@@ -12,8 +12,9 @@ linear model.
 The null hypothesis in this scenario is the amount of TV, newspaper, and radio advertising
  is not associated with the amount of sales. A significant p-value in any of these cases
  would show that the associated predictor (TV, newspaper, or radio) has a statistically
- significant effect on the response (sales) Based on the table, TV and radio advertisements
- are significant on the amount of sales while spending money on newspaper advertisements are not.
+ significant effect on the response (sales). Based on the table, TV and radio advertisements
+ are significant on the amount of sales while spending money on newspaper advertisements are not, causing 
+ a rejection of their respective null hypotheses.
 
 2. Carefully explain the differences between the KNN classifier and KNN
 regression methods.
@@ -27,26 +28,19 @@ predicts the category that a new data point would be in while the regression met
 a new data point's response.
 
 
-3. Suppose we have a data set with five predictors, X1 = GPA, X2 =
-IQ, X3 = Level (1 for College and 0 for High School), X4 = Interaction between GPA and IQ, and X5 = Interaction between GPA and Level. The response is starting salary after graduation (in thousands
-of dollars). Suppose we use least squares to fit the model, and get
-βˆ0 = 50, βˆ1 = 20, βˆ2 = 0.07, βˆ3 = 35, βˆ4 = 0.01, βˆ5 = −10.
-(a) Which answer is correct, and why?
-i. For a fixed value of IQ and GPA, high school graduates earn
-more, on average, than college graduates.
-ii. For a fixed value of IQ and GPA, college graduates earn
-more, on average, than high school graduates.
-iii. For a fixed value of IQ and GPA, high school graduates earn
-more, on average, than college graduates provided that the
-GPA is high enough.
-iv. For a fixed value of IQ and GPA, college graduates earn
+3. Salary prediction
+(a) Correct answer: iv. For a fixed value of IQ and GPA, college graduates earn
 more, on average, than high school graduates provided that
 the GPA is high enough.
-(b) Predict the salary of a college graduate with IQ of 110 and a
-GPA of 4.0.
-(c) True or false: Since the coefficient for the GPA/IQ interaction
-term is very small, there is very little evidence of an interaction
-effect. Justify your answer.
+
+(b) Answer: 137.1
+
+Let `x_1` be GPA, `x_2` be IQ, `x_3` be level, `x_4` be GPA * IQ, and `x_5` be GPA * level, so:
+`x_1 = 4, x_2 = 110, x_3 = 1, x_4 = 440, x_5 = 4`.
+Substituting:
+50 + 20 * 4 + 0.07 * 110 + 35 * 1 + 0.01 * 440 + (−10 * 4) = 137.1
+
+(c) False, a coefficient's value is does not explicitly denote whether it is statistically significant.
 
 4. I collect a set of data (n = 100 observations) containing a single
 predictor and a quantitative response. I then fit a linear regression
@@ -67,15 +61,6 @@ other, would we expect them to be the same, or is there not
 enough information to tell? Justify your answer.
 (d) Answer (c) using test rather than training RSS.
 
-5. Consider the fitted values that result from performing linear regression without an intercept. 
-
-<br>
-7. It is claimed in the text that in the case of simple linear regression
-of Y onto X, the R2 statistic (3.17) is equal to the square of the
-correlation between X and Y (3.18). Prove that this is the case. For
-simplicity, you may assume that x¯ = ¯y = 0.
-
-<br>
 14. This problem focuses on the collinearity problem.
 (a) Perform the following commands in R:
 ```r{}

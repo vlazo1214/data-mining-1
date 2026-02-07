@@ -364,9 +364,10 @@ linear model.</li>
 and radio advertising is not associated with the amount of sales. A
 significant p-value in any of these cases would show that the associated
 predictor (TV, newspaper, or radio) has a statistically significant
-effect on the response (sales) Based on the table, TV and radio
+effect on the response (sales). Based on the table, TV and radio
 advertisements are significant on the amount of sales while spending
-money on newspaper advertisements are not.</p>
+money on newspaper advertisements are not, causing a rejection of their
+respective null hypotheses.</p>
 <ol start="2" style="list-style-type: decimal">
 <li>Carefully explain the differences between the KNN classifier and KNN
 regression methods.</li>
@@ -381,34 +382,22 @@ nearest data points. The classifier simply predicts the category that a
 new data point would be in while the regression method predicts a new
 data point’s response.</p>
 <ol start="3" style="list-style-type: decimal">
-<li>Suppose we have a data set with five predictors, X1 = GPA, X2 = IQ,
-X3 = Level (1 for College and 0 for High School), X4 = Interaction
-between GPA and IQ, and X5 = Interaction between GPA and Level. The
-response is starting salary after graduation (in thousands of dollars).
-Suppose we use least squares to fit the model, and get βˆ0 = 50, βˆ1 =
-20, βˆ2 = 0.07, βˆ3 = 35, βˆ4 = 0.01, βˆ5 = −10.</li>
+<li>Salary prediction</li>
 </ol>
 <ol style="list-style-type: lower-alpha">
-<li>Which answer is correct, and why?</li>
+<li><p>Correct answer: iv. For a fixed value of IQ and GPA, college
+graduates earn more, on average, than high school graduates provided
+that the GPA is high enough.</p></li>
+<li><p>Answer: 137.1</p></li>
 </ol>
-<ol style="list-style-type: lower-roman">
-<li>For a fixed value of IQ and GPA, high school graduates earn more, on
-average, than college graduates.</li>
-<li>For a fixed value of IQ and GPA, college graduates earn more, on
-average, than high school graduates.</li>
-<li>For a fixed value of IQ and GPA, high school graduates earn more, on
-average, than college graduates provided that the GPA is high
-enough.</li>
-<li>For a fixed value of IQ and GPA, college graduates earn more, on
-average, than high school graduates provided that the GPA is high
-enough.</li>
-</ol>
-<ol start="2" style="list-style-type: lower-alpha">
-<li>Predict the salary of a college graduate with IQ of 110 and a GPA of
-4.0.</li>
-<li>True or false: Since the coefficient for the GPA/IQ interaction term
-is very small, there is very little evidence of an interaction effect.
-Justify your answer.</li>
+<p>Let <code>x_1</code> be GPA, <code>x_2</code> be IQ, <code>x_3</code>
+be level, <code>x_4</code> be GPA * IQ, and <code>x_5</code> be GPA *
+level, so: <code>x_1 = 4, x_2 = 110, x_3 = 1, x_4 = 440, x_5 = 4</code>.
+Substituting: 50 + 20 * 4 + 0.07 * 110 + 35 * 1 + 0.01 * 440 + (−10 * 4)
+= 137.1</p>
+<ol start="3" style="list-style-type: lower-alpha">
+<li>False, a coefficient’s value is does not explicitly denote whether
+it is statistically significant.</li>
 </ol>
 <ol start="4" style="list-style-type: decimal">
 <li>I collect a set of data (n = 100 observations) containing a single
@@ -432,16 +421,12 @@ expect them to be the same, or is there not enough information to tell?
 Justify your answer.</li>
 <li>Answer (c) using test rather than training RSS.</li>
 </ol>
-<ol start="5" style="list-style-type: decimal">
-<li>Consider the fitted values that result from performing linear
-regression without an intercept.</li>
+<ol start="14" style="list-style-type: decimal">
+<li>This problem focuses on the collinearity problem.</li>
 </ol>
-<p><br> 7. It is claimed in the text that in the case of simple linear
-regression of Y onto X, the R2 statistic (3.17) is equal to the square
-of the correlation between X and Y (3.18). Prove that this is the case.
-For simplicity, you may assume that x¯ = ¯y = 0.</p>
-<p><br> 14. This problem focuses on the collinearity problem. (a)
-Perform the following commands in R:</p>
+<ol style="list-style-type: lower-alpha">
+<li>Perform the following commands in R:</li>
+</ol>
 <pre class="r"><code>&gt; set.seed(1)
 &gt; x1 &lt;- runif(100)
 &gt; x2 &lt;- 0.5 * x1 + rnorm(100) / 10
