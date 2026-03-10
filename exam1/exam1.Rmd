@@ -1,0 +1,342 @@
+---
+title: "Exam1"
+output: html_document
+---
+
+## Problem 1: Regression workflow, diagnostics, and variable selection (Boston)
+
+Load data:
+```{r}
+library(ISLR2)
+library(glmnet)
+df <- Boston
+```
+
+### 1A: Data audit and split
+
+1. Sample size: 506, predictors: 12
+```{r}
+nrow(df)
+ncol(df)
+```
+2. Missingness: no rows contain missing values:
+```{r}
+missing <- na.omit(df)
+length(df) - length(missing)
+```
+
+3. Train-test split:
+```{r}
+set.seed(5703)
+
+index <- sample(1:nrow(df), size = floor(0.7 * nrow(df)))
+training <- df[index, ]
+testing <- df[-index, ]
+```
+
+The reason why a random sample is acceptable in this case is because the data is not in a time-series format. This allows us to create a sample that is unbiased toward any specific factor and is able to be reproduced.
+
+
+### 1B: Baselines and linear regression
+
+1. Baseline: MSE: 85.77256 RMSE: 9.261348
+
+```{r}
+train_mean <- mean(training$medv)
+pred <- rep(train_mean, nrow(testing))
+
+mse <- mean((testing$medv - pred)^2)
+rmse <- sqrt(mean((testing$medv - pred)^2))
+mse
+rmse
+```
+
+
+2. OLS model: MSE: 22.48931 RMSE: 4.742289 R^2: 0.7285897
+```{r}
+ols <- lm(medv ~ ., data = training)
+pred <- predict(ols, newdata=testing)
+mse <- mean((testing$medv - pred)^2)
+rmse <- sqrt(mean((testing$medv - pred)^2))
+
+mse
+rmse
+summary(ols)
+```
+
+3. Interpretations: 
+
+The coefficient with `lstat` tells us that there is a negative relationship between it and
+`medv`, as `lstat` increases `medv` decreases and vice-versa. The coefficient being less than 1 tells us that there is a weak relationship between it and the response. The 95% confidence interval is [-0.709354079, -0.465158652]
+
+The coefficient with `rm` tells us that there is a positive relationship between it and
+`medv`, as `rm` increases `medv` increases and vice-versa. The coefficient being ~3 tells us that there is a somewhat strong relationship between it and the response. The 95% confidence interval is [2.323988495, 4.285793439]
+
+```{r}
+confint(ols, level = 0.95)
+```
+
+
+### 1C: Diagnostics and influence
+
+1. Diagnostic plots (Q-Q and Residual vs. Fitted)
+
+```{r}
+qqnorm(resid(ols))
+qqline(resid(ols))
+```
+In this Q-Q plot, there is a light tail in the lower end, indicating a few points that are lower than the theoretical quantiles. There is also a heavy tail in the higher end, indicating a positive skew and highlights outliers in the data.  
+
+
+```{r}
+plot(fitted(ols), resid(ols), xlab="Fitted", ylab="Residual", main="Residuals vs. Fitted")
+```
+
+In this plot, there is a slight upward parabolic curve, indicating a non-linear pattern between fitted and residual values. There is little to no visible heteroscedasticity in this plot.
+
+
+2. Flagging influential points
+
+```{r}
+leverage <- hatvalues(ols)
+
+predictors <- length(coef(ols)) - 1
+
+lev_cut  <- 2 * (predictors + 1) / nrow(training)
+
+flagged <- which(leverage > lev_cut)
+flagged <- sort(unique(flagged))
+```
+
+
+3. Sensitivity refit
+
+```{r}
+new_training <- training[-flagged, ]
+new_testing <- testing[-flagged, ]
+
+ols_new <- lm(medv ~ ., data = new_training)
+pred_new <- predict(ols_new, newdata = new_testing)
+rmse_new <- sqrt(mean((new_testing$medv - pred_new)^2))
+
+summary(ols_new)
+```
+
+```{r}
+print("Original model lstat and rm coefficients + RMSE: ")
+ols$coefficients[['lstat']]
+ols$coefficients[['rm']]
+rmse
+print("---")
+print("New model lstat and rm coefficients + RMSE: ")
+ols_new$coefficients[['lstat']]
+ols_new$coefficients[['rm']]
+rmse_new
+```
+
+There was a slight change in coefficents in `lstat` (0.1 difference) and a stronger change in `rm` coefficients (1.5 difference). The error got slightly better after removing the flagged points (0.4 difference). This means that the flagged points had an influence that when removed it improved the model.
+
+### 1D: Functional form improvement
+
+```{r}
+ols_quad <- lm(medv ~ crim + zn + indus + chas + nox + rm + age + dis + rad + tax + ptratio + lstat + I(lstat^2), data = new_training)
+
+pred_quad <- predict(ols_quad, newdata = new_testing)
+rmse_quad <- sqrt(mean((new_testing$medv - pred_quad)^2))
+
+rmse_quad 
+```
+
+This new model added a quadratic term, `lstat^2`. The test RMSE is better than the previous model: 3.894157. The reason why this change was made was to attempt to account for the non-linearity that was reported in the Residuals vs. Fitted diagnostic plot.
+
+
+### 1E: Variable selection and regularization (ridge, lasso, subset selection)
+
+1. Ridge and lasso
+
+```{r}
+cv_ridge <- cv.glmnet(as.matrix(new_training[, -1]), new_training$medv, alpha = 0, nfolds = 10, standardize = TRUE)
+cv_lasso <- cv.glmnet(as.matrix(new_training[, -1]), new_training$medv, alpha = 0, nfolds = 10, standardize = TRUE)
+
+print("Ridge lambda min and lambda 1se: ") 
+print(cv_ridge$lambda.min)
+print(cv_ridge$lambda.1se)
+
+print("Lasso lambda min and lambda 1se: ")
+print(cv_lasso$lambda.min)
+print(cv_lasso$lambda.1se)
+
+
+pred_ridge <- predict(cv_ridge, newx = as.matrix(new_testing[, -1]), s = "lambda.min")
+mse_ridge <- mean((new_testing$medv - as.numeric(pred_ridge))^2)
+rmse_ridge <- sqrt(mean((new_testing$medv - as.numeric(pred_ridge))^2))
+
+print("Ridge test RMSE: ")
+print(rmse_ridge)
+
+pred_lasso <- predict(cv_lasso, newx = as.matrix(new_testing[, -1]), s = "lambda.min")
+rmse_lasso <- sqrt(mean((new_testing$medv - as.numeric(pred_lasso))^2))
+
+print("Ridge test RMSE: ")
+print(rmse_lasso)
+
+```
+
+2. Lasso variable selection
+
+```{r}
+coef(cv_lasso, s = "lambda.1se")
+```
+
+Because most values hover around 0, small changes in lambda will not change the selected set in a major way.
+```{r}
+library(leaps)
+```
+
+3. Subset selection paths
+```{r}
+predict_regsubsets <- function(object, newdata, id, formula) {
+  mat <- model.matrix(formula, newdata)
+  coefi <- coef(object, id = id)
+  # Ensure column alignment
+  pred <- mat[, names(coefi), drop = FALSE] %*% coefi
+  as.numeric(pred)
+}
+
+kfold_cv_regsubsets <- function(data, formula, nvmax, method = "exhaustive", K = 10, seed = 1) {
+  set.seed(seed)
+  n <- nrow(data)
+  folds <- sample(rep(1:K, length.out = n))
+  cv_err <- matrix(NA_real_, nrow = K, ncol = nvmax)
+
+  for (k in 1:K) {
+    tr <- data[folds != k, , drop = FALSE]
+    va <- data[folds == k, , drop = FALSE]
+
+    fit <- regsubsets(formula, data = tr, nvmax = nvmax, method = method)
+
+    for (s in 1:nvmax) {
+      pred <- predict_regsubsets(fit, va, id = s, formula = formula)
+      y_va <- model.response(model.frame(formula, data = va))
+      cv_err[k, s] <- mean((y_va - pred)^2)
+    }
+  }
+  colMeans(cv_err)
+}
+```
+
+```{r}
+cv_best <- kfold_cv_regsubsets(new_training, formula = medv ~ ., nvmax = 12, method = "exhaustive", K = 10, seed = 5703)
+
+cv_fwd  <- kfold_cv_regsubsets(new_training, formula = medv ~ ., nvmax = 12, method = "forward",   K = 10, seed = 5703)
+
+cv_bwd  <- kfold_cv_regsubsets(new_training, formula = medv ~ ., nvmax = 12, method = "backward",  K = 10, seed = 5703)
+
+size_best <- which.min(cv_best)
+size_fwd  <- which.min(cv_fwd)
+size_bwd  <- which.min(cv_bwd)
+
+c(size_best = size_best, size_fwd = size_fwd, size_bwd = size_bwd)
+```
+
+
+
+
+## Problem 2. Time series classification, tuning, and variable selection (Weekly)
+
+```{r}
+library(dplyr)
+library(caret)
+library(rsample)
+```
+
+
+```{r}
+df <- Weekly
+names(df)
+```
+
+### 2A: Time ordering
+
+1. Sort by year
+```{r}
+sorted <- arrange(df, Year)
+```
+
+2. Time-ordered split: Num training: 762, num testing: 327
+```{r}
+index <- sample(1:nrow(df), size = floor(0.7 * nrow(df)))
+training <- df[index, ]
+testing <- df[-index, ]
+
+nrow(training)
+nrow(testing)
+```
+
+3. Class prevalence: Full: 605, training: 423, testing: 183
+
+```{r}
+nrow(df[df$Direction == 'Up', ])
+nrow(training[training$Direction == 'Up', ])
+nrow(testing[testing$Direction == 'Up', ])
+```
+
+4. Random shuffling in a time series evaluation could entriely prevent a signal from being detected. The data's order needs to be preserved because if points from the future end up in the training set, it could cause the model to seemingly perform well but is not actually representative of the data.
+
+
+### 2B: Baseline and evaluation metrics
+
+1. Baseline classifier
+
+```{r}
+table <-table(training$Direction)
+majority <- names(which.max(table))
+actual_values <- training$Direction
+predicted_majority <- factor(rep(majority, length(actual_values)), levels = levels(actual_values))
+
+conf_matrix_table <- table(Prediction = predicted_majority, Actual = actual_values)
+accuracy <- sum(diag(conf_matrix_table)) / sum(conf_matrix_table)
+
+conf_matrix_table
+accuracy
+```
+
+2. Accuracy alone can be misleading because in this case, the model seemed to be only a little better than 50/50 guessing, but only predicted Up. Two alternatives would be measuring AUC of the ROC curve or log loss.
+
+### 2C Model Comparison
+
+```{r}
+resamples <- rolling_origin(training, initial = floor(nrow(training) / 10), assess = 1, cumulative = FALSE)
+nrow(analysis(resamples$splits[[1]]))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Problem 4: Short answers
+
+1. Training error is the metric that shows model performance when it is initially trained on the training data whereas testing error is used to measure model performance on new data (testing data). Training error should not be used to estimate generalization performance because it is not representative of the entire dataset, it has only been trained on a portion and has not had a final evaluation.
+
+2. One example of data leakage caused by preprocessing is in a time-series dataset, random shuffling is used. The data's order needs to be preserved because if points from the future end up in the training set, it could cause the model to seemingly perform well but is not actually representative of the data. The way to correct this is sorting the data by an appropriate metric before any splitting occurs to preserve the order.
+
+3. Using CV as a final model performance is not correct because there needs to be a final pass of the testing set. The last step of running the testing set through the model is crucial because it captures true model performance by seeing how well the model does to unseen data (testing set) from the original (training) dataset. The testing process is a simulation of giving the model real-world data that is relevant because it came from the same dataset.
+One remedy is splitting the data into training/validation/testing. The model is first trained on the training data to serve as a baseline. The tuning of hyperparameters occurs during the validation process. The testing set is used to give a final evaluation of the model after training and validation occurs.
+
+4. One metric that emphasizes ranking quality is the AUC and one metric that emphasizes decision quality at a specific threshold is the F1 score.
+
+
+
+

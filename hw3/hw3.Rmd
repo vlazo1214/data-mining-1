@@ -1,0 +1,164 @@
+---
+title: "hw3"
+output: html_document
+---
+
+5. It is well-known that ridge regression tends to give similar coefficient
+values to correlated variables, whereas the lasso may give quite different coefficient values to correlated variables. We will now explore this property in a very simple setting.
+Suppose that n = 2, p = 2, x11 = x12, x21 = x22. Furthermore,
+suppose that y1 +y2 = 0 and x11 +x21 = 0 and x12 +x22 = 0, so that
+the estimate for the intercept in a least squares, ridge regression, or
+lasso model is zero: βˆ0 = 0.
+
+(a) Write out the ridge regression optimization problem in this setting.
+(b) Argue that in this setting, the ridge coefficient estimates satisfy
+βˆ1 = βˆ2.
+(c) Write out the lasso optimization problem in this setting.
+(d) Argue that in this setting, the lasso coefficients βˆ1 and βˆ2 are
+not unique—in other words, there are many possible solutions
+to the optimization problem in (c). Describe these solutions.
+
+
+8. In this exercise, we will generate simulated data, and will then use
+this data to perform best subset selection.
+
+(a) Use the rnorm() function to generate a predictor X of length
+n = 100, as well as a noise vector ϵ of length n = 100.
+
+```{r}
+X <- rnorm(100)
+epsilon <- rnorm(100)
+```
+
+
+(b) Generate a response vector Y of length n = 100 according to
+the model Y = β0 + β1X + β2X2 + β3X3 + ϵ, where β0, β1, β2, and β3 are constants of your choice.
+
+```{r}
+b_0 <- 5
+b_1 <- 3
+b_2 <- 6
+b_3 <- 7
+y <- b_0 + b_1*X + b_2*X^2 + b_3*X^3 + epsilon
+```
+
+
+(c) Use the regsubsets() function to perform best subset selection
+in order to choose the best model containing the predictors
+X, X2,...,X10. What is the best model obtained according to
+Cp, BIC, and adjusted R2? Show some plots to provide evidence
+for your answer, and report the coefficients of the best model obtained. Note you will need to use the data.frame() function to create a single data set containing both X and Y .
+
+```{r}
+library(leaps)
+
+set.seed(1)
+
+df <- data.frame(y=y, x=X)
+subset_fit <- regsubsets(y ~ I(X) + I(X^2)+ I(X^3) + I(X^4) + I(X^5) + I(X^6) + I(X^7) + I(X^8) + I(X^9) + I(X^10), data=df, nvmax=10)
+reg_summary <- summary(subset_fit)
+
+# Best model according to cp, bic, and adjr2
+reg_cp <- which.min(reg_summary$cp)
+reg_bic <- which.min(reg_summary$bic)
+reg_adjr2 <- which.max(reg_summary$adjr2)
+
+reg_cp
+reg_bic
+reg_adjr2
+
+par(mfrow=c(2,2))
+
+plot(subset_fit)
+
+plot(reg_summary$adjr2 ,xlab="Number of Variables ", ylab="Adjusted RSq",type="l")
+points(which.max(reg_summary$adjr2),reg_summary$adjr2[which.max(reg_summary$adjr2)], col="red",cex=2,pch=20)
+
+plot(reg_summary$cp ,xlab="Number of Variables ",ylab="Cp", type='l')
+points(which.min(reg_summary$cp),reg_summary$cp[which.min(reg_summary$cp)],col="red",cex=2,pch=20)
+
+plot(reg_summary$bic ,xlab="Number of Variables ",ylab="BIC",type='l')
+points(which.min(reg_summary$bic),reg_summary$bic[which.min(reg_summary$bic)],col="red",cex=2,pch=20)
+
+
+# coefficients for best 5 variable model 
+coef(subset_fit, 5)
+```
+
+
+(d) Repeat (c), using forward stepwise selection and also using backwards stepwise selection. How does your answer compare to the
+results in (c)?
+
+Forward selection:
+```{r}
+forward_fit <- regsubsets(y ~ I(X) + I(X^2)+ I(X^3) + I(X^4) + I(X^5) + I(X^6) + I(X^7) + I(X^8) + I(X^9) + I(X^10), data=df, nvmax=10, method="forward")
+forward_summary <- summary(forward_fit)
+
+# Best model according to cp, bic, and adjr2
+which.min(forward_summary$cp)
+which.min(forward_summary$bic)
+which.max(forward_summary$adjr2)
+
+# coefficients for best 5 variable model 
+coef(forward_fit, 5)
+```
+
+Backward selection:
+```{r}
+backward_fit <- regsubsets(y ~ I(X) + I(X^2)+ I(X^3) + I(X^4) + I(X^5) + I(X^6) + I(X^7) + I(X^8) + I(X^9) + I(X^10), data=df, nvmax=10, method="backward")
+backward_summary <- summary(backward_fit)
+
+# Best model according to cp, bic, and adjr2
+which.min(backward_summary$cp)
+which.min(backward_summary$bic)
+which.max(backward_summary$adjr2)
+
+
+# coefficients for best 5 variable model 
+coef(backward_fit, 5)
+```
+
+The performance of each model tells us that a 5 variable model was the best model. 
+The regular use of `rsubsets()` (neither forward nor backward stepwise) and the forward
+stepwise says that X, X^2, X^3, X^5, and X^10 were the best variables whereas the
+backwards stepwise says that X, X^2, X^3, X^5, and X^7 were the best variables.
+
+(e) Now fit a lasso model to the simulated data, again using X, X2,
+...,X10 as predictors. Use cross-validation to select the optimal
+value of λ. Create plots of the cross-validation error as a function
+of λ. Report the resulting coefficient estimates, and discuss the
+results obtained.
+
+```{r}
+library(glmnet)
+
+X <- model.matrix(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5) + I(x^6) + I(x^7) + I(x^8) + I(x^9) + I(x^10), data=df)[, -1]
+y <- df$y
+
+set.seed(1)
+cv_lasso <- glmnet(X,y,alpha=1)
+plot(cv_lasso)
+```
+
+
+(f) Now generate a response vector Y according to the model
+Y = β0 + β7X7 + ϵ,
+and perform best subset selection and the lasso. Discuss the
+results obtained.
+
+
+
+9. In this exercise, we will predict the number of applications received
+using the other variables in the College data set.
+(a) Split the data set into a training set and a test set.
+(b) Fit a linear model using least squares on the training set, and
+report the test error obtained.
+(c) Fit a ridge regression model on the training set, with λ chosen
+by cross-validation. Report the test error obtained.
+(d) Fit a lasso model on the training set, with λ chosen by crossvalidation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+(e) Fit a PCR model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value
+of M selected by cross-validation.
+(f) Fit a PLS model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value
+of M selected by cross-validation.
+(g) Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much
+difference among the test errors resulting from these five approaches?
