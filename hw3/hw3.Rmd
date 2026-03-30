@@ -52,7 +52,7 @@ for your answer, and report the coefficients of the best model obtained. Note yo
 ```{r}
 library(leaps)
 
-set.seed(1)
+set.seed(42)
 
 df <- data.frame(y=y, x=X)
 subset_fit <- regsubsets(y ~ I(X) + I(X^2)+ I(X^3) + I(X^4) + I(X^5) + I(X^6) + I(X^7) + I(X^8) + I(X^9) + I(X^10), data=df, nvmax=10)
@@ -67,7 +67,7 @@ reg_cp
 reg_bic
 reg_adjr2
 
-par(mfrow=c(2,2))
+# par(mfrow=c(2,2))
 
 plot(subset_fit)
 
@@ -81,8 +81,8 @@ plot(reg_summary$bic ,xlab="Number of Variables ",ylab="BIC",type='l')
 points(which.min(reg_summary$bic),reg_summary$bic[which.min(reg_summary$bic)],col="red",cex=2,pch=20)
 
 
-# coefficients for best 5 variable model 
-coef(subset_fit, 5)
+# coefficients for best 3 variable model 
+coef(subset_fit, 3)
 ```
 
 
@@ -99,8 +99,8 @@ which.min(forward_summary$cp)
 which.min(forward_summary$bic)
 which.max(forward_summary$adjr2)
 
-# coefficients for best 5 variable model 
-coef(forward_fit, 5)
+# coefficients for best 3 variable model 
+coef(forward_fit, 3)
 ```
 
 Backward selection:
@@ -114,11 +114,11 @@ which.min(backward_summary$bic)
 which.max(backward_summary$adjr2)
 
 
-# coefficients for best 5 variable model 
-coef(backward_fit, 5)
+# coefficients for best 3 variable model 
+coef(backward_fit, 3)
 ```
 
-The performance of each model tells us that a 5 variable model was the best model. 
+The performance of each model tells us that a 3 variable model was the best model. 
 The regular use of `rsubsets()` (neither forward nor backward stepwise) and the forward
 stepwise says that X, X^2, X^3, X^5, and X^10 were the best variables whereas the
 backwards stepwise says that X, X^2, X^3, X^5, and X^7 were the best variables.
@@ -135,30 +135,216 @@ library(glmnet)
 X <- model.matrix(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5) + I(x^6) + I(x^7) + I(x^8) + I(x^9) + I(x^10), data=df)[, -1]
 y <- df$y
 
-set.seed(1)
-cv_lasso <- glmnet(X,y,alpha=1)
-plot(cv_lasso)
+set.seed(42)
+cv_lasso <- cv.glmnet(X,y,alpha=1)
+plot(cv_lasso, sign.lambda=1)
+```
+```{r}
+min.lambda <- cv_lasso$lambda.min
+min.lambda
 ```
 
+
+```{r}
+prediction <- predict(cv_lasso, s = min.lambda, type = "coefficients")[1:11, ]
+prediction
+```
+
+The the model that uses lambda min only contains 5 out of the ten total predictors used: x, x^2, x^3, x^4, x^5. The Lasso
+method being used gives us information of what predictors are not useful by making them all 0.
 
 (f) Now generate a response vector Y according to the model
 Y = β0 + β7X7 + ϵ,
 and perform best subset selection and the lasso. Discuss the
 results obtained.
 
+```{r}
+set.seed(42)
+X <- rnorm(100)
+e <- rnorm(100)
 
+b_0 <- 5
+b_7 <- 3
+y <- b_0 + b_7*X^7 + e
+```
+
+Best subset selection:
+```{r}
+df <- data.frame(y=y, x=X)
+diff_fit <- regsubsets(y ~ I(X) + I(X^2)+ I(X^3) + I(X^4) + I(X^5) + I(X^6) + I(X^7) + I(X^8) + I(X^9) + I(X^10), data=df, nvmax=10)
+diff_summary <- summary(diff_fit)
+
+# Best model according to cp, bic, and adjr2
+which.min(diff_summary$cp)
+which.min(diff_summary$bic)
+which.max(diff_summary$adjr2)
+
+plot(diff_summary$adjr2 ,xlab="Number of Variables ", ylab="Adjusted RSq",type="l")
+points(which.max(diff_summary$adjr2),diff_summary$adjr2[which.max(diff_summary$adjr2)], col="red",cex=2,pch=20)
+
+plot(diff_summary$cp ,xlab="Number of Variables ",ylab="Cp", type='l')
+points(which.min(diff_summary$cp),diff_summary$cp[which.min(diff_summary$cp)],col="red",cex=2,pch=20)
+
+plot(diff_summary$bic ,xlab="Number of Variables ",ylab="BIC",type='l')
+points(which.min(diff_summary$bic),diff_summary$bic[which.min(diff_summary$bic)],col="red",cex=2,pch=20)
+
+
+# coefficients for best 4 variable model 
+coef(diff_fit, 4)
+```
+
+
+Lasso:
+```{r}
+X <- model.matrix(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5) + I(x^6) + I(x^7) + I(x^8) + I(x^9) + I(x^10), data=df)[, -1]
+y <- df$y
+
+set.seed(42)
+diff_lasso <- cv.glmnet(X,y,alpha=1)
+plot(diff_lasso, sign.lambda=1)
+```
+```{r}
+min.lambda <- diff_lasso$lambda.min
+min.lambda
+```
+
+```{r}
+prediction <- predict(diff_lasso, s = min.lambda, type = "coefficients")[1:11, ]
+prediction
+```
+
+In this instance, when the min lambda was used it only chose one predictor, x^7. This is because the response vector created in this problem contained x^7.
 
 9. In this exercise, we will predict the number of applications received
 using the other variables in the College data set.
+
 (a) Split the data set into a training set and a test set.
+```{r}
+require(ISLR)
+data(College)
+attach(College)
+
+set.seed(42)
+
+college_train = sample(1:nrow(College), nrow(College) * 0.7)
+college_test = -college_train
+y_test <- Apps[college_test]
+```
+
+
 (b) Fit a linear model using least squares on the training set, and
 report the test error obtained.
+```{r}
+college_ols <- lm(Apps ~ ., data = College, subset = college_train)
+
+summary(college_ols)
+```
+```{r}
+college_predict <- predict(college_ols, College[college_test, ])
+college_error <- mean((college_predict - y_test)^2)
+college_error
+```
+The test MSE is 1583501
+
 (c) Fit a ridge regression model on the training set, with λ chosen
 by cross-validation. Report the test error obtained.
+
+```{r}
+matrix <- model.matrix(Apps~., data=College)[, -1]
+matrix.train <- matrix[college_train,]
+y <- College$Apps
+y_train <- y[college_train]
+
+ridge <- cv.glmnet(matrix.train, y_train, alpha=0)
+plot(ridge, sign.lambda = 1)
+```
+
+```{r}
+ridge.lambda <- ridge$lambda.min
+
+ridge_predict <- predict(ridge, s = ridge.lambda, newx = matrix[college_test, ])
+ridge_error <- mean((ridge_predict - y_test)^2)
+ridge_error
+```
+
+The test error for ridge is 2828195. 
+
 (d) Fit a lasso model on the training set, with λ chosen by crossvalidation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+
+```{r}
+lasso <- cv.glmnet(matrix.train, y_train, alpha=1)
+plot(lasso, sign.lambda=1)
+```
+```{r}
+lasso.lambda <- lasso$lambda.min
+lasso.lambda
+```
+The min lambda for lasso is 9.660522
+
+```{r}
+lasso_predict <- predict(lasso, s = lasso.lambda, newx = matrix[college_test, ])
+lasso_error <- mean((lasso_predict - y_test)^2)
+lasso_error
+```
+
+The test MSE for lasso is 1675404
+
+```{r}
+lasso.c <- predict(lasso,type="coefficients", s=lasso.lambda)[1:17,]
+length(lasso.c[lasso.c != 0])
+```
+Lasso produced 15 coefficient estimates that are not 0
+
 (e) Fit a PCR model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value
 of M selected by cross-validation.
+
+```{r}
+library(pls)
+
+pcr_fit <- pcr(Apps~., data=College, subset=college_train, scale=TRUE, validation ="CV")
+summary(pcr_fit)
+```
+```{r}
+validationplot(pcr_fit,val.type="MSEP")
+```
+The lowest CV error is when all 17 variables are used
+
+```{r}
+pcr_pred <- predict(pcr_fit,matrix[college_test,], ncomp=17) 
+pcr_error <- mean((pcr_pred-y_test)^2)
+pcr_error
+```
+The test MSE is 1583501
+
 (f) Fit a PLS model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value
 of M selected by cross-validation.
+
+```{r}
+pls_fit <- plsr(Apps~., data=College, subset=college_train, scale=TRUE, validation="CV")
+summary(pls_fit)
+```
+```{r}
+validationplot(pls_fit,val.type="MSEP")
+```
+```{r}
+pls_pred <- predict(pls_fit,matrix[college_test,],ncomp=10) 
+pls_error <- mean((pls_pred-y_test)^2)
+pls_error
+```
+
+
 (g) Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much
 difference among the test errors resulting from these five approaches?
+
+```{r}
+results <- c(college_error, ridge_error, lasso_error, pcr_error, pls_error)
+names(results) <- c("lm", "ridge", "lasso", "pcr", "pls")
+barplot(results)
+```
+```{r}
+print(sort(results))
+```
+
+Ridge ended up performing the worst by having the highest error whereas the other
+four methods were within a small range of each other. PCR performed the best with having the lowest 
+test error.
