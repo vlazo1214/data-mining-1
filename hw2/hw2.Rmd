@@ -75,7 +75,7 @@ The regression coefficients are B_1 and B_2 that correspond with x1 and x2, resp
 displaying the relationship between the variables.
 
 x2 halves x1's values and adds noise represented by 100 points that follow a normal distribution
-and dividing them by 10. This scales down x1's values and creates a linear relationship:
+and dividing them by 10, causing an 83% correlation. This scales down x1's values and creates a linear relationship:
 
 ```{r}
 cor(x1, x2)
@@ -110,8 +110,7 @@ We can see the Multiple R-squared, 0.2088 which means that ~20% of the data can 
 also can see that x1's p-value is significantly smaller than in the previous model. This
 means that we still reject a null hypothesis of B_1 = 0.
 
-(e) Now fit a least squares regression to predict y using only x2.
-Comment on your results. Can you reject the null hypothesis
+(e) Now fit a least squares regression to predict y using only x2. Comment on your results. Can you reject the null hypothesis
 H0 : β1 = 0?
 
 ```{r}
@@ -121,20 +120,35 @@ summary(x2_model)
 
 We can see the Multiple R-squared, 0.1763 which means that ~17% of the data can be explained by the new model. We
 also can see that x2's p-value is significantly smaller than in the first model, making it significant.
-In this case, we reject a null hypothesis of B_2 = 0.
+In this case, we reject a null hypothesis of B_1 = 0.
 
-(f) Do the results obtained in (c)–(e) contradict each other? Explain
-your answer.
-(g) Now suppose we obtain one additional observation, which was
-unfortunately mismeasured.
+(f) Do the results obtained in (c)–(e) contradict each other? Explain your answer.
 
-```
+In part (c), we saw that x2 did not have a significant p-value whereas in part (e) x2 did have a significant p-value. This is because both x1 and x2 were used in the model which weakening each individual feature's performance. 
+
+(g) Now suppose we obtain one additional observation, which was unfortunately mismeasured.
+
+```{r}
 x1 <- c(x1, 0.1)
 x2 <- c(x2, 0.8)
 y <- c(y, 6)
 ```
 
-Re-fit the linear models from (c) to (e) using this new data. What
-effect does this new observation have on the each of the models?
-In each model, is this observation an outlier? A high-leverage
-point? Both? Explain your answers.
+Re-fit the linear models from (c) to (e) using this new data. What effect does this new observation have on the each of the models? In each model, is this observation an outlier? A high-leverage point? Both? Explain your answers.
+
+Adding this new observation resulted in the x2 variable being significant in all cases where it's used. The x1 variable had less significance as well. The y ~ x2 model was able to explain 20% of the data whereas the y ~ x1 model only explained 15%. These show that this new observation is an outlier and a high leverage point.
+
+```{r}
+model <- lm(y ~ x1 + x2)
+summary(model)
+```
+
+```{r}
+model <- lm(y ~ x1)
+summary(model)
+```
+
+```{r}
+model <- lm(y ~ x2)
+summary(model)
+```
