@@ -1,0 +1,204 @@
+---
+title: "boilerplate"
+output: html_document
+---
+
+### 1. Exploratory Data Analysis (EDA) Boilerplate
+
+```R
+# ==============================================================================
+# EXPLORATORY DATA ANALYSIS (EDA) BOILERPLATE
+# ==============================================================================
+
+# 1. LOAD LIBRARIES
+# -------------------
+# Use suppressPackageStartupMessages to prevent package loading warnings in reports
+suppressPackageStartupMessages({
+  library(tidyverse, warn.conflicts = FALSE)
+  library(skimr)          # For quick data summaries
+  library(janitor)        # For data cleaning utilities
+  library(readr)          # For fast CSV/Excel reading
+  library(corrplot)       # For correlation heatmaps
+  library(ggrepel)        # For enhanced labeling on plots
+})
+
+# 2. ENVIRONMENT CONFIGURATION
+# ----------------------------
+# Set up warnings and reproducibility
+options(warn = 1)           # Treat warnings as errors (adjust as needed)
+set.seed(42)                # Ensures reproducibility in random steps
+
+# 3. DATA LOADING FUNCTIONS
+# -------------------------
+# Define variables for input paths
+DATA_FILE <- "data.csv"    # Replace with your file path
+DELIMITER <- ","           # Replace if your file uses tab/semicolon
+SHEET_NAME <- "Sheet1"    # Replace if reading Excel
+
+# Function to load data safely
+load_data <- function(filepath, sheet = NULL) {
+  if (file.exists(filepath)) {
+    message(paste("Loading data from:", filepath))
+    # Read CSV
+    data <- readr::read_csv(filepath, col_types = readr::cols(), show_col_types =
+TRUE)
+  } else {
+    message("Warning: File not found. Creating dummy data structure.")
+    data <- tibble::tibble(a = c(1,2,3), b = c(4,5,6))
+  }
+  return(data)
+}
+
+# 4. INITIAL INSPECTION
+# ---------------------
+check_data <- function(df) {
+  # Store metadata for reporting
+  message("Running Initial Data Check...")
+
+  # Basic Dimension Check
+  message(paste("Columns:", ncol(df)))
+  message(paste("Rows:", nrow(df)))
+
+  # Check Column Types (skimr does this automatically, but we show it explicitly)
+  col_types <- colnames(df)
+  # Convert to data.frame with explicit types for consistency
+  col_dfs <- as.list(df)
+
+  # Identify unique types
+  types <- sapply(col_dfs, class)
+  message("Column Types:\n")
+  print(as.data.frame(types))
+
+  # Identify unique values count (unique rows per column)
+  unique_counts <- col_dfs %>% sapply(n_distinct) %>% unlist()
+  message("Unique Counts per Column:\n")
+  print(as.data.frame(unique_counts))
+
+  return(df)
+}
+
+# 5. DATA CLEANING (Optional Pre-processing)
+# ------------------------------------------
+clean_data <- function(df) {
+  message("Cleaning Data...")
+
+  # Convert character columns to factors if needed (e.g., categorical columns)
+  # (Logic depends on your specific column structure, use caution)
+  # Example: df <- df %>% mutate(id = as.character(id))
+
+  # Remove rows with critical missing values
+  # (Adjust threshold or logic based on EDA goals)
+  message("Checking Missing Values...")
+  df %>% summarize(missing_count = sum(is.na(.)))
+
+  return(df)
+}
+
+# 6. DESCRIPTIVE STATISTICS
+# --------------------------
+describe_data <- function(df) {
+  message("Generating Descriptive Statistics...")
+
+  # Basic summary using summary()
+  summary_stats <- summarize_stats(df,
+                                    numeric = "numeric",
+                                    categorical = "categorical")
+
+  return(summary_stats)
+}
+
+# Helper to summarize numeric and categorical data
+summarize_stats <- function(df, numeric = NULL, categorical = NULL) {
+  # Separate numeric and categorical
+  num_vars <- subset(df, select = where(is.numeric)) %>% summarize(n = nrow(df))
+  cat_vars <- subset(df, select = where(is.factor | is.character)) %>% summarize(n
+= nrow(df))
+
+  cat("=== Numeric Summary ===\n")
+  print(summary(df %>% select(where(is.numeric))))
+  cat("\n=== Categorical Summary ===\n")
+  print(table(df %>% select(where(is.factor | is.character))) %>% as.data.frame)
+
+  return(NULL)
+}
+
+# 7. VISUALIZATION
+# ----------------
+plot_data <- function(df, x_var = NULL, y_var = NULL) {
+  message("Generating Visualizations...")
+
+  # Histogram for numeric columns
+  num_cols <- df %>% select(where(is.numeric)) %>% colnames()
+
+  # Loop through columns to create histograms
+  for (col in num_cols) {
+    p <- ggplot(df, aes(x = !!enquo(col), fill = factor(col))) +
+      geom_histogram(bins = 30, color = "white") +
+      labs(title = paste("Distribution:", col),
+           x = col, y = "Count") +
+      theme_minimal()
+
+    print(p)
+    message("Generated Histogram for: ", col)
+  }
+
+  # Boxplot for comparison
+  cat_vars <- df %>% select(where(is.factor | is.character)) %>% colnames()
+  if (length(cat_vars) > 0) {
+    message("Generating Boxplot for Categorical Variables...")
+    # Example: Boxplot for specific numeric col vs Categorical factor
+    # (Logic depends on column names)
+  }
+}
+
+# 8. CORRELATION ANALYSIS
+# -----------------------
+compute_correlation <- function(df) {
+  message("Computing Correlations...")
+
+  # Extract numeric columns only
+  num_vars <- subset(df, select = where(is.numeric))
+
+  # Correlation matrix
+  cor_matrix <- cor(num_vars, use = "complete.obs")
+
+  message("Correlation Matrix:\n")
+  print(cor_matrix)
+
+  # Visualization
+  plot <- ggcorrplot(as.matrix(cor_matrix),
+                     main = "Correlation Heatmap")
+  print(plot)
+
+  return(cor_matrix)
+}
+
+# 9. EXECUTION SCRIPT
+# -------------------
+# Run the pipeline
+main_EDA <- function() {
+  # Load Data
+  # Note: This step is where you replace the dummy data with your real dataset
+  data <- load_data(DATA_FILE)
+
+  # Step 1: Check Data
+  data <- check_data(data)
+
+  # Step 2: Clean Data (Optional)
+  # data <- clean_data(data)
+
+  # Step 3: Describe
+  summarize_stats(data)
+
+  # Step 4: Visualize
+  # plot_data(data)
+
+  # Step 5: Correlation
+  # compute_correlation(data)
+}
+
+# RUN MAIN
+if (!interactive()) {
+  main_EDA()
+}
+```

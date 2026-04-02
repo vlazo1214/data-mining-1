@@ -1,0 +1,333 @@
+---
+title: "exam2"
+output: html_document
+---
+
+```{r, include=FALSE}
+
+# Credit to Dr. Huang's Chapter7.rmd for some code in this block
+
+required_pkgs <- c("ggplot2", "splines", "mgcv", "knitr")
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop(sprintf("Please install package '%s' before knitting this file.", pkg))
+  }
+}
+
+if (requireNamespace("ISLR", quietly = TRUE)) {
+  data("Wage", package = "ISLR")
+} else if (requireNamespace("ISLR2", quietly = TRUE)) {
+  data("Wage", package = "ISLR2")
+} else {
+  stop("Please install either the ISLR or ISLR2 package to load the Wage data.")
+}
+
+out_dir <- "output"
+fig_dir <- file.path(out_dir, "figures")
+tbl_dir <- file.path(out_dir, "tables")
+dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(tbl_dir, recursive = TRUE, showWarnings = FALSE)
+
+library(ggplot2)
+library(splines)
+library(mgcv)
+library(knitr)
+
+save_plot <- function(p, name, width = 7, height = 4.5) {
+  ggsave(filename = file.path(fig_dir, paste0(name, ".pdf")), plot = p,
+         width = width, height = height, units = "in")
+  ggsave(filename = file.path(fig_dir, paste0(name, ".png")), plot = p,
+         width = width, height = height, units = "in", dpi = 300)
+  invisible(p)
+}
+
+save_table <- function(x, name, digits = 3, align = NULL) {
+  tex <- knitr::kable(x, format = "latex", booktabs = TRUE,
+                      digits = digits, align = align)
+  writeLines(tex, file.path(tbl_dir, paste0(name, ".tex")))
+  invisible(x)
+}
+
+rmse <- function(y, yhat) sqrt(mean((y - yhat)^2, na.rm = TRUE))
+mae <- function(y, yhat) mean(abs(y - yhat), na.rm = TRUE)
+rsq <- function(y, yhat) {
+  ok <- is.finite(yhat)
+  y <- y[ok]
+  yhat <- yhat[ok]
+  1 - sum((y - yhat)^2) / sum((y - mean(y))^2)
+}
+logloss <- function(y, p) {
+  p <- pmin(pmax(p, 1e-6), 1 - 1e-6)
+  -mean(y * log(p) + (1 - y) * log(1 - p))
+}
+brier <- function(y, p) mean((y - p)^2)
+accuracy <- function(y, p, threshold = 0.5) mean((p >= threshold) == (y == 1))
+
+# Helper: Basic RMSE calculation
+rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2, na.rm = TRUE))
+}
+
+# Helper: Generate fold assignments
+cv_assignments <- function(n, K = 10, seed = 5703) {
+  set.seed(seed)
+  sample(rep(1:K, length.out = n))
+}
+
+# Generalized LOESS prediction with boundary interpolation
+predict_loess_safe <- function(model, newdata, x_col, train_x = NULL) {
+  pred <- predict(model, newdata = newdata)
+  if (all(!is.na(pred))) return(as.numeric(pred))
+  
+  if (is.null(train_x)) stop("train_x must be supplied when loess predictions contain NA values.")
+  
+  # Create data frame with correct column name for training fit
+  train_df <- data.frame(train_x)
+  colnames(train_df) <- x_col
+  fitted_train <- predict(model, newdata = train_df)
+  
+  # Linear interpolation for out-of-bounds x values (rule = 2)
+  approx(x = train_x, y = fitted_train, xout = newdata[[x_col]], rule = 2)$y
+}
+
+# Generalized Step Model creation
+make_step_model <- function(train_data, x_col, y_col, bins) {
+  x_vals <- train_data[[x_col]]
+  
+  # Create breaks based on local data range
+  br <- seq(min(x_vals), max(x_vals), length.out = bins + 1)
+  br[1] <- br[1] - 1e-6
+  br[length(br)] <- br[length(br)] + 1e-6
+  
+  # Temporary column for fitting
+  train_data$tmp_bin <- cut(x_vals, breaks = br, include.lowest = TRUE)
+  
+  form <- reformulate("tmp_bin", response = y_col)
+  fit  <- lm(form, data = train_data)
+  
+  # Store metadata for prediction
+  list(fit = fit, breaks = br, x_col = x_col)
+}
+
+# Generalized Step Model prediction
+predict_step_model <- function(obj, newdata) {
+  # Apply the same breaks to the new data
+  newdata$tmp_bin <- cut(newdata[[obj$x_col]], breaks = obj$breaks, include.lowest = TRUE)
+  predict(obj$fit, newdata = newdata)
+}
+
+# Main K-Fold Cross Validation Function
+kfold_rmse <- function(model_type, values, data, y_col, x_col, K = 10) {
+  folds <- cv_assignments(nrow(data), K = K, seed = 5703)
+  out <- data.frame(setting = values, cv_rmse = NA_real_)
+
+  for (i in seq_along(values)) {
+    val <- values[i]
+    fold_err <- numeric(K)
+
+    for (k in seq_len(K)) {
+      train <- data[folds != k, ]
+      valid <- data[folds == k, ]
+      y_true <- valid[[y_col]]
+
+      if (model_type == "poly") {
+        form <- reformulate(sprintf("poly(%s, %d)", x_col, val), response = y_col)
+        fit  <- lm(form, data = train)
+        pred <- predict(fit, newdata = valid)
+        
+      } else if (model_type == "step") {
+        fit  <- make_step_model(train, x_col = x_col, y_col = y_col, bins = val)
+        pred <- predict_step_model(fit, valid)
+        
+      } else if (model_type == "ns") {
+        # Requires the 'splines' library
+        form <- reformulate(sprintf("splines::ns(%s, df = %d)", x_col, val), response = y_col)
+        fit  <- lm(form, data = train)
+        pred <- predict(fit, newdata = valid)
+        
+      } else if (model_type == "ss") {
+        fit  <- smooth.spline(train[[x_col]], train[[y_col]], df = val)
+        pred <- predict(fit, x = valid[[x_col]])$y
+        
+      } else if (model_type == "loess") {
+        form <- reformulate(x_col, response = y_col)
+        fit  <- loess(form, data = train, span = val, degree = 1)
+        pred <- predict_loess_safe(fit, newdata = valid, x_col = x_col, train_x = train[[x_col]])
+        
+      } else {
+        stop("Unknown model_type")
+      }
+
+      fold_err[k] <- rmse(y_true, pred)
+    }
+    out$cv_rmse[i] <- mean(fold_err)
+  }
+  out
+}
+
+```
+
+
+# Problem 2
+
+```{r}
+set.seed(5703)
+
+sim_fun <- function(n) {
+  x1 <- runif(n, 18, 70)
+  x2 <- runif(n, 0, 1)
+  x3 <- rnorm(n)
+  x4 <- rnorm(n)
+  z <- factor(sample(c("A", "B", "C"), n, replace = TRUE,
+                prob = c(0.40, 0.35, 0.25)))
+  
+  mu <- 75 + 1.6 * x1 - 0.018 * x1^2 +
+          10 * sin(2 * pi * x2) + 4 * x3 +
+          6 * (z == "B") - 8 * (z == "C")
+  
+  y <- mu + rnorm(n, sd = 12)
+  
+  eta <- -6 + 0.11 * x1 - 0.0012 * x1^2 +
+  1.4 * sin(2 * pi * x2) + 0.7 * x3 +
+  0.9 * (z == "B") - 0.7 * (z == "C")
+  
+  p <- plogis(eta)
+  y_bin <- rbinom(n, size = 1, prob = p)
+  data.frame(x1, x2, x3, x4, z, mu, p, y, y_bin)
+}
+
+train <- sim_fun(400)
+test <- sim_fun(2000)
+```
+
+## 2A
+
+```{r}
+dataset <- rbind(train, test)
+
+ggplot(dataset, aes(x1, y)) +
+  geom_point(alpha = 0.25) +
+  labs(title = "x1 vs y", x = "x1", y = "y")
+
+ggplot(dataset, aes(x2, y)) +
+  geom_point(alpha = 0.25) +
+  labs(title = "x2 vs y", x = "x2", y = "y")
+
+```
+```{r}
+ggplot(dataset, aes(x = "Data", y = y_bin)) + 
+  geom_jitter(width = 0.2, height = 0.05, alpha = 0.5) +
+  labs(title="Jittered y_bin Points")
+```
+
+## 2B
+
+```{r}
+poly_5_cv <- kfold_rmse("poly", values = 1:8, data = train, "x1", "y", K = 5)
+
+colnames(poly_5_cv) <- c("degree", "cv_rmse")
+save_table(poly_5_cv, "tbl_poly_degree_cv", digits = 3)
+
+p_poly_cv <- ggplot(poly_5_cv, aes(degree, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:8) +
+  labs(title = "Polynomial degree tuning by 10-fold CV",
+       x = "Polynomial degree", y = "CV RMSE")
+save_plot(p_poly_cv, "fig_poly_degree_cv")
+
+poly_5_cv
+p_poly_cv
+```
+```{r}
+poly_5_cv <- kfold_rmse("poly", values = 1:8, data = train, "x2", "y", K = 5)
+
+colnames(poly_5_cv) <- c("degree", "cv_rmse")
+save_table(poly_5_cv, "tbl_poly_degree_cv", digits = 3)
+
+p_poly_cv <- ggplot(poly_5_cv, aes(degree, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:8) +
+  labs(title = "Polynomial degree tuning by 10-fold CV",
+       x = "Polynomial degree", y = "CV RMSE")
+save_plot(p_poly_cv, "fig_poly_degree_cv")
+
+poly_5_cv
+p_poly_cv
+```
+
+
+```{r}
+ns_cv <- kfold_rmse("ns", values = 3:10, data = train, "x1", "y", K = 5)
+colnames(ns_cv) <- c("df", "cv_rmse")
+save_table(ns_cv, "tbl_ns_df_cv", digits = 3)
+
+p_ns_cv <- ggplot(ns_cv, aes(df, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 3:10) +
+  labs(title = "Natural spline tuning by 10-fold CV",
+       x = "Degrees of freedom", y = "CV RMSE")
+save_plot(p_ns_cv, "fig_ns_df_cv")
+
+ns_cv
+p_ns_cv
+```
+```{r}
+ns_cv <- kfold_rmse("ns", values = 3:10, data = train, "x2", "y", K = 5)
+colnames(ns_cv) <- c("df", "cv_rmse")
+save_table(ns_cv, "tbl_ns_df_cv", digits = 3)
+
+p_ns_cv <- ggplot(ns_cv, aes(df, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 3:10) +
+  labs(title = "Natural spline tuning by 10-fold CV",
+       x = "Degrees of freedom", y = "CV RMSE")
+save_plot(p_ns_cv, "fig_ns_df_cv")
+
+ns_cv
+p_ns_cv
+```
+
+```{r}
+linear <- lm(y ~ x1 + x2 + x3 + x4 + z, data=train)
+polynomial <- lm(y ~ poly(x1, 2) + poly(x2, 2) + x3 + x4 + z, data=train)
+nat_spline <- lm(y ~ ns(x1, df = 3) + ns(x2, df = 4) + x3 + x4 + z, data = train)
+gam <- gam(y ~ s(x1) + s(x2) + x3 + x4 + z, data = train)
+
+multivariable_compare <- data.frame(
+  model = c("Linear age + year + education",
+            "Polynomial age + year + education",
+            "Natural splines for age and year",
+            "GAM with smooth age and year"),
+  aic = c(AIC(linear), AIC(polynomial), AIC(nat_spline), AIC(gam)),
+  test_rmse = c(
+    rmse(test$y, predict(linear, newdata = test)),
+    rmse(test$y, predict(polynomial, newdata = test)),
+    rmse(test$y, predict(nat_spline, newdata = test)),
+    rmse(test$y, predict(gam, newdata = test))
+  ),
+  test_mae = c(
+    mae(test$y, predict(linear, newdata = test)),
+    mae(test$y, predict(polynomial, newdata = test)),
+    mae(test$y, predict(nat_spline, newdata = test)),
+    mae(test$y, predict(gam, newdata = test))
+  ),
+  test_r2 = c(
+    rsq(test$y, predict(linear, newdata = test)),
+    rsq(test$y, predict(polynomial, newdata = test)),
+    rsq(test$y, predict(nat_spline, newdata = test)),
+    rsq(test$y, predict(gam, newdata = test))
+  )
+)
+save_table(multivariable_compare, "tbl_multivariable_model_compare", digits = 3)
+kable(multivariable_compare, digits = 3)
+
+```
+
+
+
+
+

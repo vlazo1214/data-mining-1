@@ -1,0 +1,705 @@
+---
+title: "ISLR Chapter 7 Lab: Moving Beyond Linearity"
+author: "Hsin-Hsiung Huang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+  pdf_document:
+    toc: true
+    number_sections: true
+fontsize: 11pt
+geometry: margin=1in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 7,
+  fig.height = 4.5,
+  dpi = 300,
+  fig.align = "center"
+)
+
+required_pkgs <- c("ggplot2", "splines", "mgcv", "knitr")
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop(sprintf("Please install package '%s' before knitting this file.", pkg))
+  }
+}
+
+if (requireNamespace("ISLR", quietly = TRUE)) {
+  data("Wage", package = "ISLR")
+} else if (requireNamespace("ISLR2", quietly = TRUE)) {
+  data("Wage", package = "ISLR2")
+} else {
+  stop("Please install either the ISLR or ISLR2 package to load the Wage data.")
+}
+
+library(ggplot2)
+library(splines)
+library(mgcv)
+library(knitr)
+
+out_dir <- "chapter7_outputs"
+fig_dir <- file.path(out_dir, "figures")
+tbl_dir <- file.path(out_dir, "tables")
+dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(tbl_dir, recursive = TRUE, showWarnings = FALSE)
+
+save_plot <- function(p, name, width = 7, height = 4.5) {
+  ggsave(filename = file.path(fig_dir, paste0(name, ".pdf")), plot = p,
+         width = width, height = height, units = "in")
+  ggsave(filename = file.path(fig_dir, paste0(name, ".png")), plot = p,
+         width = width, height = height, units = "in", dpi = 300)
+  invisible(p)
+}
+
+save_table <- function(x, name, digits = 3, align = NULL) {
+  tex <- knitr::kable(x, format = "latex", booktabs = TRUE,
+                      digits = digits, align = align)
+  writeLines(tex, file.path(tbl_dir, paste0(name, ".tex")))
+  invisible(x)
+}
+
+rmse <- function(y, yhat) sqrt(mean((y - yhat)^2, na.rm = TRUE))
+mae <- function(y, yhat) mean(abs(y - yhat), na.rm = TRUE)
+rsq <- function(y, yhat) {
+  ok <- is.finite(yhat)
+  y <- y[ok]
+  yhat <- yhat[ok]
+  1 - sum((y - yhat)^2) / sum((y - mean(y))^2)
+}
+logloss <- function(y, p) {
+  p <- pmin(pmax(p, 1e-6), 1 - 1e-6)
+  -mean(y * log(p) + (1 - y) * log(1 - p))
+}
+brier <- function(y, p) mean((y - p)^2)
+accuracy <- function(y, p, threshold = 0.5) mean((p >= threshold) == (y == 1))
+
+predict_loess_safe <- function(model, newdata, train_x = NULL) {
+  pred <- predict(model, newdata = newdata)
+  if (all(!is.na(pred))) return(pred)
+  if (is.null(train_x)) stop("train_x must be supplied when loess predictions contain NA values.")
+  fitted_train <- predict(model, newdata = data.frame(age = train_x))
+  approx(x = train_x, y = fitted_train, xout = newdata$age, rule = 2)$y
+}
+
+make_step_model <- function(train_data, bins) {
+  br <- seq(min(train_data$age), max(train_data$age), length.out = bins + 1)
+  br[1] <- min(Wage$age) - 1e-6
+  br[length(br)] <- max(Wage$age) + 1e-6
+  train_data$age_bin <- cut(train_data$age, breaks = br, include.lowest = TRUE)
+  fit <- lm(wage ~ age_bin, data = train_data)
+  list(fit = fit, breaks = br)
+}
+
+predict_step_model <- function(obj, newdata) {
+  nd <- newdata
+  nd$age_bin <- cut(nd$age, breaks = obj$breaks, include.lowest = TRUE)
+  predict(obj$fit, newdata = nd)
+}
+
+cv_assignments <- function(n, K = 10, seed = 5703) {
+  set.seed(seed)
+  sample(rep(1:K, length.out = n))
+}
+
+kfold_rmse <- function(model_type, values, data = Wage, K = 10) {
+  folds <- cv_assignments(nrow(data), K = K, seed = 5703)
+  out <- data.frame(setting = values, cv_rmse = NA_real_)
+
+  for (i in seq_along(values)) {
+    val <- values[i]
+    fold_err <- numeric(K)
+
+    for (k in seq_len(K)) {
+      train <- data[folds != k, ]
+      valid <- data[folds == k, ]
+
+      if (model_type == "poly") {
+        fit <- lm(wage ~ poly(age, val), data = train)
+        pred <- predict(fit, newdata = valid)
+      } else if (model_type == "step") {
+        fit <- make_step_model(train, bins = val)
+        pred <- predict_step_model(fit, valid)
+      } else if (model_type == "ns") {
+        fit <- lm(wage ~ ns(age, df = val), data = train)
+        pred <- predict(fit, newdata = valid)
+      } else if (model_type == "ss") {
+        fit <- smooth.spline(train$age, train$wage, df = val)
+        pred <- predict(fit, x = valid$age)$y
+      } else if (model_type == "loess") {
+        fit <- loess(wage ~ age, data = train, span = val, degree = 1)
+        pred <- predict_loess_safe(fit, data.frame(age = valid$age), train_x = train$age)
+      } else {
+        stop("Unknown model_type")
+      }
+
+      fold_err[k] <- rmse(valid$wage, pred)
+    }
+
+    out$cv_rmse[i] <- mean(fold_err)
+  }
+
+  out
+}
+
+Wage$high_wage <- as.integer(Wage$wage > 250)
+set.seed(5703)
+train_id <- sample.int(nrow(Wage), floor(0.80 * nrow(Wage)))
+train <- Wage[train_id, ]
+test  <- Wage[-train_id, ]
+
+age_grid <- data.frame(age = seq(min(Wage$age), max(Wage$age), length.out = 200))
+age_profile <- data.frame(
+  age = seq(min(Wage$age), max(Wage$age), length.out = 200),
+  year = round(median(Wage$year)),
+  education = levels(Wage$education)[1]
+)
+```
+
+# Overview
+
+These notes implement the main Chapter 7 nonlinear methods using the `Wage` data. The file is designed for two purposes:
+
+1. to serve as a fully runnable lab for students, and
+2. to generate figures and LaTeX tables for `Chapter7.tex`.
+
+When you knit this document, the code writes figures to `chapter7_outputs/figures/` and LaTeX tables to `chapter7_outputs/tables/`.
+
+## Data overview
+
+```{r data-summary}
+overview_tbl <- data.frame(
+  variable = c("n", "age mean", "age sd", "wage mean", "wage sd", "high wage rate"),
+  value = c(
+    nrow(Wage),
+    mean(Wage$age),
+    sd(Wage$age),
+    mean(Wage$wage),
+    sd(Wage$wage),
+    mean(Wage$high_wage)
+  )
+)
+save_table(overview_tbl, "tbl_overview_data_summary", digits = 3)
+kable(overview_tbl, digits = 3)
+```
+
+```{r raw-wage-plot}
+p_raw <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.15) +
+  labs(title = "Raw Wage data", x = "Age", y = "Wage")
+save_plot(p_raw, "fig_overview_raw_wage")
+p_raw
+```
+
+# Polynomial regression
+
+## Degree tuning
+
+```{r poly-degree-cv}
+poly_cv <- kfold_rmse("poly", values = 1:8, data = Wage, K = 10)
+colnames(poly_cv) <- c("degree", "cv_rmse")
+save_table(poly_cv, "tbl_poly_degree_cv", digits = 3)
+
+p_poly_cv <- ggplot(poly_cv, aes(degree, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:8) +
+  labs(title = "Polynomial degree tuning by 10-fold CV",
+       x = "Polynomial degree", y = "CV RMSE")
+save_plot(p_poly_cv, "fig_poly_degree_cv")
+
+poly_cv
+```
+
+```{r poly-fit}
+fit_poly4 <- lm(wage ~ poly(age, 4), data = Wage)
+pred_poly4 <- predict(fit_poly4, newdata = age_grid, se = TRUE)
+
+poly_df <- transform(
+  age_grid,
+  fit = pred_poly4$fit,
+  lwr = pred_poly4$fit - 1.96 * pred_poly4$se.fit,
+  upr = pred_poly4$fit + 1.96 * pred_poly4$se.fit
+)
+
+p_poly_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.15) +
+  geom_ribbon(data = poly_df,
+              aes(x = age, ymin = lwr, ymax = upr),
+              inherit.aes = FALSE,
+              alpha = 0.20) +
+  geom_line(data = poly_df,
+            aes(x = age, y = fit),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Quartic polynomial regression", x = "Age", y = "Wage")
+save_plot(p_poly_fit, "fig_poly_fit")
+p_poly_fit
+```
+
+## Orthogonal versus raw polynomial basis
+
+```{r raw-vs-orth}
+fit_poly_raw  <- lm(wage ~ poly(age, 4, raw = TRUE), data = Wage)
+fit_poly_orth <- lm(wage ~ poly(age, 4), data = Wage)
+poly_basis_tbl <- data.frame(
+  quantity = c("max abs difference in fitted values"),
+  value = c(max(abs(predict(fit_poly_raw) - predict(fit_poly_orth))))
+)
+save_table(poly_basis_tbl, "tbl_poly_basis_compare", digits = 10)
+kable(poly_basis_tbl, digits = 10)
+```
+
+## Logistic polynomial regression
+
+```{r poly-logit}
+fit_poly_logit <- glm(high_wage ~ poly(age, 3), data = Wage, family = binomial)
+pred_poly_logit <- predict(fit_poly_logit, newdata = age_grid, se.fit = TRUE, type = "link")
+
+poly_logit_df <- transform(
+  age_grid,
+  prob = plogis(pred_poly_logit$fit),
+  lwr = plogis(pred_poly_logit$fit - 1.96 * pred_poly_logit$se.fit),
+  upr = plogis(pred_poly_logit$fit + 1.96 * pred_poly_logit$se.fit)
+)
+
+p_poly_logit <- ggplot(poly_logit_df, aes(age, prob)) +
+  geom_ribbon(aes(x = age, ymin = lwr, ymax = upr), alpha = 0.20) +
+  geom_line(aes(x = age, y = prob), linewidth = 1) +
+  labs(title = "Polynomial logistic regression", x = "Age", y = "P(wage > 250 | age)")
+save_plot(p_poly_logit, "fig_poly_logit")
+p_poly_logit
+```
+
+```{r poly-logit-eval}
+poly_logit_prob_test <- predict(fit_poly_logit, newdata = test, type = "response")
+poly_logit_eval <- data.frame(
+  metric = c("log loss", "brier score", "accuracy"),
+  value = c(
+    logloss(test$high_wage, poly_logit_prob_test),
+    brier(test$high_wage, poly_logit_prob_test),
+    accuracy(test$high_wage, poly_logit_prob_test)
+  )
+)
+save_table(poly_logit_eval, "tbl_poly_logit_eval", digits = 4)
+kable(poly_logit_eval, digits = 4)
+```
+
+# Step functions
+
+## Bin tuning
+
+```{r step-tuning}
+step_cv <- kfold_rmse("step", values = 3:8, data = Wage, K = 10)
+colnames(step_cv) <- c("bins", "cv_rmse")
+save_table(step_cv, "tbl_step_bins_cv", digits = 3)
+
+p_step_cv <- ggplot(step_cv, aes(bins, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 3:8) +
+  labs(title = "Step-function tuning by 10-fold CV",
+       x = "Number of bins", y = "CV RMSE")
+save_plot(p_step_cv, "fig_step_bins_cv")
+
+step_cv
+```
+
+## Four-bin step function fit
+
+```{r step-fit}
+step4_obj <- make_step_model(Wage, bins = 4)
+step_df <- transform(age_grid, fit = predict_step_model(step4_obj, age_grid))
+
+p_step_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.15) +
+  geom_line(data = step_df,
+            aes(x = age, y = fit),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Step function with four bins", x = "Age", y = "Wage")
+save_plot(p_step_fit, "fig_step_fit")
+p_step_fit
+```
+
+# Regression splines and natural splines
+
+## Natural spline tuning by degrees of freedom
+
+```{r ns-tuning}
+ns_cv <- kfold_rmse("ns", values = 3:10, data = Wage, K = 10)
+colnames(ns_cv) <- c("df", "cv_rmse")
+save_table(ns_cv, "tbl_ns_df_cv", digits = 3)
+
+p_ns_cv <- ggplot(ns_cv, aes(df, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 3:10) +
+  labs(title = "Natural spline tuning by 10-fold CV",
+       x = "Degrees of freedom", y = "CV RMSE")
+save_plot(p_ns_cv, "fig_ns_df_cv")
+
+ns_cv
+```
+
+## Cubic regression spline with explicit knots
+
+```{r bs-fit}
+fit_bs <- lm(wage ~ bs(age, knots = c(30, 40, 50, 60)), data = Wage)
+bs_df <- transform(age_grid, fit = predict(fit_bs, newdata = age_grid))
+
+p_bs_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.15) +
+  geom_line(data = bs_df,
+            aes(x = age, y = fit),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Cubic regression spline", x = "Age", y = "Wage")
+save_plot(p_bs_fit, "fig_bs_fit")
+p_bs_fit
+```
+
+## Natural spline fit
+
+```{r ns-fit}
+fit_ns5 <- lm(wage ~ ns(age, df = 5), data = Wage)
+ns_df <- transform(age_grid, fit = predict(fit_ns5, newdata = age_grid))
+
+p_ns_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.15) +
+  geom_line(data = ns_df,
+            aes(x = age, y = fit),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Natural spline with 5 degrees of freedom", x = "Age", y = "Wage")
+save_plot(p_ns_fit, "fig_ns_fit")
+p_ns_fit
+```
+
+## Side-by-side comparison of age smoothers
+
+```{r spline-compare}
+fit_poly3 <- lm(wage ~ poly(age, 3), data = Wage)
+compare_df <- age_grid
+compare_df$poly3 <- predict(fit_poly3, newdata = age_grid)
+compare_df$step4 <- predict_step_model(step4_obj, age_grid)
+compare_df$ns5   <- predict(fit_ns5, newdata = age_grid)
+
+p_compare <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.12) +
+  geom_line(data = compare_df,
+            aes(x = age, y = poly3, linetype = "Polynomial"),
+            inherit.aes = FALSE) +
+  geom_line(data = compare_df,
+            aes(x = age, y = step4, linetype = "Step"),
+            inherit.aes = FALSE) +
+  geom_line(data = compare_df,
+            aes(x = age, y = ns5, linetype = "Natural spline"),
+            inherit.aes = FALSE) +
+  labs(title = "Comparing nonlinear fits", x = "Age", y = "Wage", linetype = "Model")
+save_plot(p_compare, "fig_spline_compare")
+p_compare
+```
+
+# Smoothing splines
+
+## Effective degrees of freedom tuning
+
+```{r ss-tuning}
+ss_cv <- kfold_rmse("ss", values = 4:10, data = Wage, K = 10)
+colnames(ss_cv) <- c("df", "cv_rmse")
+save_table(ss_cv, "tbl_ss_df_cv", digits = 3)
+
+p_ss_cv <- ggplot(ss_cv, aes(df, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 4:10) +
+  labs(title = "Smoothing spline tuning by 10-fold CV",
+       x = "Target effective df", y = "CV RMSE")
+save_plot(p_ss_cv, "fig_ss_df_cv")
+
+ss_cv
+```
+
+## Cross-validated and fixed-df smoothing splines
+
+```{r ss-fit}
+fit_ss_cv  <- smooth.spline(Wage$age, Wage$wage, cv = TRUE)
+fit_ss_df6 <- smooth.spline(Wage$age, Wage$wage, df = 6)
+ss_df <- age_grid
+ss_df$cv_fit  <- predict(fit_ss_cv, x = age_grid$age)$y
+ss_df$df6_fit <- predict(fit_ss_df6, x = age_grid$age)$y
+
+p_ss_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.12) +
+  geom_line(data = ss_df,
+            aes(x = age, y = cv_fit, linetype = "CV chosen"),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  geom_line(data = ss_df,
+            aes(x = age, y = df6_fit, linetype = "df = 6"),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Smoothing spline fits", x = "Age", y = "Wage", linetype = "Fit")
+save_plot(p_ss_fit, "fig_ss_fit")
+p_ss_fit
+```
+
+```{r ss-summary-table}
+ss_tbl <- data.frame(
+  fit = c("CV chosen", "Fixed df = 6"),
+  effective_df = c(fit_ss_cv$df, fit_ss_df6$df),
+  spar = c(fit_ss_cv$spar, fit_ss_df6$spar)
+)
+save_table(ss_tbl, "tbl_ss_fit_summary", digits = 3)
+kable(ss_tbl, digits = 3)
+```
+
+# Local regression
+
+## Span tuning
+
+```{r loess-tuning}
+loess_cv <- kfold_rmse("loess", values = c(0.20, 0.35, 0.50, 0.65, 0.80), data = Wage, K = 10)
+colnames(loess_cv) <- c("span", "cv_rmse")
+save_table(loess_cv, "tbl_loess_span_cv", digits = 3)
+
+p_loess_cv <- ggplot(loess_cv, aes(span, cv_rmse)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "LOESS span tuning by 10-fold CV",
+       x = "Span", y = "CV RMSE")
+save_plot(p_loess_cv, "fig_loess_span_cv")
+
+loess_cv
+```
+
+## LOESS fits with different spans
+
+```{r loess-fit}
+fit_loess_02 <- loess(wage ~ age, data = Wage, span = 0.20, degree = 1)
+fit_loess_05 <- loess(wage ~ age, data = Wage, span = 0.50, degree = 1)
+loess_df <- age_grid
+loess_df$fit_02 <- predict_loess_safe(fit_loess_02, age_grid, train_x = Wage$age)
+loess_df$fit_05 <- predict_loess_safe(fit_loess_05, age_grid, train_x = Wage$age)
+
+p_loess_fit <- ggplot(Wage, aes(age, wage)) +
+  geom_point(alpha = 0.12) +
+  geom_line(data = loess_df,
+            aes(x = age, y = fit_02, linetype = "span = 0.20"),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  geom_line(data = loess_df,
+            aes(x = age, y = fit_05, linetype = "span = 0.50"),
+            inherit.aes = FALSE,
+            linewidth = 1) +
+  labs(title = "Local regression with different spans", x = "Age", y = "Wage", linetype = "LOESS fit")
+save_plot(p_loess_fit, "fig_loess_fit")
+p_loess_fit
+```
+
+# Generalized additive models
+
+## Variable selection and functional form selection
+
+```{r gam-model-selection}
+fit_lm_mult <- lm(wage ~ age + year + education, data = train)
+fit_poly_mult <- lm(wage ~ poly(age, 4) + year + education, data = train)
+fit_ns_mult <- lm(wage ~ ns(age, df = 5) + ns(year, df = 4) + education, data = train)
+fit_gam_mult <- gam(wage ~ s(age, k = 6) + s(year, k = 5) + education,
+                    data = train, method = "REML")
+
+multivariable_compare <- data.frame(
+  model = c("Linear age + year + education",
+            "Polynomial age + year + education",
+            "Natural splines for age and year",
+            "GAM with smooth age and year"),
+  aic = c(AIC(fit_lm_mult), AIC(fit_poly_mult), AIC(fit_ns_mult), AIC(fit_gam_mult)),
+  test_rmse = c(
+    rmse(test$wage, predict(fit_lm_mult, newdata = test)),
+    rmse(test$wage, predict(fit_poly_mult, newdata = test)),
+    rmse(test$wage, predict(fit_ns_mult, newdata = test)),
+    rmse(test$wage, predict(fit_gam_mult, newdata = test))
+  ),
+  test_mae = c(
+    mae(test$wage, predict(fit_lm_mult, newdata = test)),
+    mae(test$wage, predict(fit_poly_mult, newdata = test)),
+    mae(test$wage, predict(fit_ns_mult, newdata = test)),
+    mae(test$wage, predict(fit_gam_mult, newdata = test))
+  ),
+  test_r2 = c(
+    rsq(test$wage, predict(fit_lm_mult, newdata = test)),
+    rsq(test$wage, predict(fit_poly_mult, newdata = test)),
+    rsq(test$wage, predict(fit_ns_mult, newdata = test)),
+    rsq(test$wage, predict(fit_gam_mult, newdata = test))
+  )
+)
+save_table(multivariable_compare, "tbl_multivariable_model_compare", digits = 3)
+kable(multivariable_compare, digits = 3)
+```
+
+## GAM term summary
+
+```{r gam-term-summary}
+fit_gam <- gam(wage ~ s(age, k = 6) + s(year, k = 5) + education,
+               data = Wage, method = "REML")
+
+gam_s_tbl <- as.data.frame(summary(fit_gam)$s.table)
+gam_s_tbl$term <- rownames(gam_s_tbl)
+rownames(gam_s_tbl) <- NULL
+gam_s_tbl <- gam_s_tbl[, c("term", "edf", "Ref.df", "F", "p-value")]
+colnames(gam_s_tbl) <- c("term", "edf", "ref_df", "F_stat", "p_value")
+save_table(gam_s_tbl, "tbl_gam_term_summary", digits = 4)
+kable(gam_s_tbl, digits = 4)
+```
+
+## GAM prediction profile and smooth term figure
+
+```{r gam-age-profile}
+age_profile$fit <- predict(fit_gam, newdata = age_profile)
+
+p_gam_age <- ggplot(age_profile, aes(age, fit)) +
+  geom_line(linewidth = 1) +
+  labs(title = "GAM prediction as age varies",
+       subtitle = paste("Year fixed at", round(median(Wage$year)), "and education fixed at", levels(Wage$education)[1]),
+       x = "Age", y = "Predicted wage")
+save_plot(p_gam_age, "fig_gam_age_profile")
+p_gam_age
+```
+
+```{r gam-smooth-plots, fig.cap="GAM partial effect plots.", eval=TRUE}
+pdf(file.path(fig_dir, "fig_gam_smooth_terms.pdf"), width = 8, height = 4.5)
+par(mfrow = c(1, 2))
+plot(fit_gam, select = 1, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+plot(fit_gam, select = 2, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+dev.off()
+
+png(file.path(fig_dir, "fig_gam_smooth_terms.png"), width = 8, height = 4.5, units = "in", res = 300)
+par(mfrow = c(1, 2))
+plot(fit_gam, select = 1, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+plot(fit_gam, select = 2, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+dev.off()
+
+par(mfrow = c(1, 2))
+plot(fit_gam, select = 1, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+plot(fit_gam, select = 2, residuals = TRUE, pch = 16, cex = 0.35, shade = TRUE)
+par(mfrow = c(1, 1))
+```
+
+## Logistic GAM and classification evaluation
+
+```{r gam-logit}
+fit_gam_logit <- gam(high_wage ~ s(age, k = 6) + s(year, k = 5) + education,
+                     data = train, family = binomial, method = "REML")
+
+logit_profile <- age_profile
+logit_profile$prob <- predict(fit_gam_logit, newdata = age_profile, type = "response")
+
+p_gam_logit <- ggplot(logit_profile, aes(age, prob)) +
+  geom_line(linewidth = 1) +
+  labs(title = "Logistic GAM: probability of high wage",
+       subtitle = paste("Year fixed at", round(median(Wage$year)), "and education fixed at", levels(Wage$education)[1]),
+       x = "Age", y = "Probability")
+save_plot(p_gam_logit, "fig_gam_logit")
+p_gam_logit
+```
+
+```{r class-compare}
+fit_glm_linear <- glm(high_wage ~ age + year + education, data = train, family = binomial)
+fit_glm_poly   <- glm(high_wage ~ poly(age, 3) + year + education, data = train, family = binomial)
+fit_gam_class  <- gam(high_wage ~ s(age, k = 6) + s(year, k = 5) + education,
+                      data = train, family = binomial, method = "REML")
+
+prob_linear <- predict(fit_glm_linear, newdata = test, type = "response")
+prob_poly   <- predict(fit_glm_poly, newdata = test, type = "response")
+prob_gam    <- predict(fit_gam_class, newdata = test, type = "response")
+
+class_compare <- data.frame(
+  model = c("Linear logistic", "Polynomial logistic", "Logistic GAM"),
+  log_loss = c(logloss(test$high_wage, prob_linear),
+               logloss(test$high_wage, prob_poly),
+               logloss(test$high_wage, prob_gam)),
+  brier = c(brier(test$high_wage, prob_linear),
+            brier(test$high_wage, prob_poly),
+            brier(test$high_wage, prob_gam)),
+  accuracy = c(accuracy(test$high_wage, prob_linear),
+               accuracy(test$high_wage, prob_poly),
+               accuracy(test$high_wage, prob_gam))
+)
+save_table(class_compare, "tbl_classification_model_compare", digits = 4)
+kable(class_compare, digits = 4)
+```
+
+# One-variable age smoother comparison
+
+```{r age-only-compare}
+# Train-age models
+fit_poly_age <- lm(wage ~ poly(age, 4), data = train)
+fit_step_age <- make_step_model(train, bins = 4)
+fit_bs_age   <- lm(wage ~ bs(age, knots = c(30, 40, 50, 60)), data = train)
+fit_ns_age   <- lm(wage ~ ns(age, df = 5), data = train)
+fit_ss_age   <- smooth.spline(train$age, train$wage, cv = TRUE)
+fit_loess_age <- loess(wage ~ age, data = train, span = 0.35, degree = 1)
+
+age_only_compare <- data.frame(
+  model = c("Polynomial (degree 4)", "Step (4 bins)", "Regression spline",
+            "Natural spline", "Smoothing spline", "LOESS"),
+  test_rmse = c(
+    rmse(test$wage, predict(fit_poly_age, newdata = test)),
+    rmse(test$wage, predict_step_model(fit_step_age, test)),
+    rmse(test$wage, predict(fit_bs_age, newdata = test)),
+    rmse(test$wage, predict(fit_ns_age, newdata = test)),
+    rmse(test$wage, predict(fit_ss_age, x = test$age)$y),
+    rmse(test$wage, predict_loess_safe(fit_loess_age, data.frame(age = test$age), train_x = train$age))
+  ),
+  test_mae = c(
+    mae(test$wage, predict(fit_poly_age, newdata = test)),
+    mae(test$wage, predict_step_model(fit_step_age, test)),
+    mae(test$wage, predict(fit_bs_age, newdata = test)),
+    mae(test$wage, predict(fit_ns_age, newdata = test)),
+    mae(test$wage, predict(fit_ss_age, x = test$age)$y),
+    mae(test$wage, predict_loess_safe(fit_loess_age, data.frame(age = test$age), train_x = train$age))
+  ),
+  test_r2 = c(
+    rsq(test$wage, predict(fit_poly_age, newdata = test)),
+    rsq(test$wage, predict_step_model(fit_step_age, test)),
+    rsq(test$wage, predict(fit_bs_age, newdata = test)),
+    rsq(test$wage, predict(fit_ns_age, newdata = test)),
+    rsq(test$wage, predict(fit_ss_age, x = test$age)$y),
+    rsq(test$wage, predict_loess_safe(fit_loess_age, data.frame(age = test$age), train_x = train$age))
+  )
+)
+save_table(age_only_compare, "tbl_age_only_model_compare", digits = 3)
+kable(age_only_compare, digits = 3)
+```
+
+# Model evaluation notes
+
+The main lesson is to separate three decisions:
+
+1. **Variable selection**: which predictors enter the model?
+2. **Functional-form selection**: should a predictor enter linearly, as a polynomial, as a step function, or as a smooth term?
+3. **Complexity tuning**: if the predictor is modeled nonlinearly, how much flexibility should we allow?
+
+A practical workflow is:
+
+1. start with a scientific question and a basic plot,
+2. choose candidate predictors,
+3. decide which predictors deserve nonlinear treatment,
+4. tune complexity with cross-validation or a validation set,
+5. compare out-of-sample metrics,
+6. inspect residuals, boundary behavior, and stability of conclusions.
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```

@@ -1,0 +1,11 @@
+
+\begin{tabular}{lrrrr}
+\toprule
+model & aic & test\_rmse & test\_mae & test\_r2\\
+\midrule
+Linear age + year + education & 3225.423 & 12.918 & 10.287 & 0.290\\
+Polynomial age + year + education & 3189.378 & 12.421 & 9.939 & 0.344\\
+Natural splines for age and year & 3140.366 & 11.601 & 9.315 & 0.427\\
+GAM with smooth age and year & 3138.139 & 11.645 & 9.358 & 0.423\\
+\bottomrule
+\end{tabular}
